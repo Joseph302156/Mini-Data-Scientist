@@ -198,6 +198,7 @@ async def get_preview(
     dataset_id: str,
     stage: str = Query("raw", pattern="^(raw|cleaned|features)$"),
     limit: int = Query(5, ge=1, le=100),
+    db: Session = Depends(get_db),
 ) -> DataPreview:
     # first try in-memory cache
     try:
