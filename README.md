@@ -249,12 +249,25 @@ From the project root:
 ```bash
 cd frontend
 npm install
-npm run dev
 ```
 
-The frontend will run at `http://localhost:5173` and proxy `/api` to the backend at `http://localhost:8000`.
+The frontend dev server is started automatically by the helper script below.
 
-### 4. Basic workflow
+### 4. One-command dev run
+
+From the project root:
+
+```bash
+chmod +x dev.sh   # first time only
+./dev.sh
+```
+
+- Starts the backend with `uvicorn` using `backend/.env`.
+- Starts the frontend Vite dev server.
+- Backend: `http://localhost:8000`
+- Frontend: `http://localhost:5173`
+
+### 5. Basic workflow
 
 1. Open the frontend in your browser (`http://localhost:5173`).
 2. Use the sidebar to upload a CSV.
