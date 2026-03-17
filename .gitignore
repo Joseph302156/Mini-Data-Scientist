@@ -1,6 +1,7 @@
 # Environment variables
 .env
 *.env
+backend/.env
 
 # Python
 __pycache__/
@@ -9,8 +10,14 @@ __pycache__/
 .venv/
 venv/
 
+# Backend runtime artefacts
+backend/data/
+backend/models/
+
 # Node
 node_modules/
+frontend/node_modules/
+frontend/dist/
 
 # OS
 .DS_Store
