@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 body {
-  @apply bg-surface-900 text-neutral-100 font-sans;
+  @apply bg-surface-900 text-neutral-100 font-sans text-[14px];
 }
 
 ::-webkit-scrollbar {

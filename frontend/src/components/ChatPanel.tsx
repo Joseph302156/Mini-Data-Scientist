@@ -44,14 +44,14 @@ export function ChatPanel({ datasetId, modelId }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-surface-800/70 backdrop-blur-md flex flex-col h-full">
+    <div className="rounded-xl border border-neutral-800 bg-surface-800/70 backdrop-blur-md flex flex-col h-full text-[13px]">
       <div className="px-4 py-2 border-b border-neutral-800 flex items-center justify-between">
         <div className="text-xs font-medium text-neutral-200">AI Analyst</div>
         <div className="text-[11px] text-neutral-500">
           {datasetId ? "Ask about this dataset or model." : "Select a dataset to start chatting."}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 text-xs">
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
         {messages.length === 0 && (
           <div className="text-[11px] text-neutral-500 mt-2">
             Try: “Summarize this dataset”, “What factors matter most?”, or “Explain the model’s

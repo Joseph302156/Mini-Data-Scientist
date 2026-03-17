@@ -39,7 +39,7 @@ export function InsightsPanel({ datasetId, modelId }: Props) {
   }, [datasetId, modelId]);
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-surface-800/70 backdrop-blur-md p-4 text-xs space-y-2">
+    <div className="rounded-xl border border-neutral-800 bg-surface-800/70 backdrop-blur-md p-4 text-[13px] space-y-2 h-64 flex flex-col">
       <div className="flex items-center justify-between">
         <div className="text-xs font-medium text-neutral-200">AI-generated insights</div>
         {loading && <div className="text-[11px] text-neutral-500">Thinking…</div>}
@@ -49,20 +49,22 @@ export function InsightsPanel({ datasetId, modelId }: Props) {
           Select or upload a dataset to generate automatic insights.
         </div>
       )}
-      {datasetId && !loading && !data && (
-        <div className="text-[11px] text-neutral-500">
-          Insights are not available yet. Check your OpenAI configuration.
-        </div>
-      )}
-      {data && (
-        <div className="prose prose-invert prose-sm max-w-none">
-          {data.insights_text.split("\n").map((line, idx) => (
-            <p key={idx} className="mb-1">
-              {line}
-            </p>
-          ))}
-        </div>
-      )}
+      <div className="flex-1 overflow-y-auto pr-1">
+        {datasetId && !loading && !data && (
+          <div className="text-[11px] text-neutral-500">
+            Insights are not available yet. Check your OpenAI configuration.
+          </div>
+        )}
+        {data && (
+          <div className="prose prose-invert prose-sm max-w-none">
+            {data.insights_text.split("\n").map((line, idx) => (
+              <p key={idx} className="mb-1">
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
