@@ -38,7 +38,7 @@ export default function App() {
             onSelectModel={(id) => setModelId(id)}
           />
           <InsightsPanel datasetId={datasetId} modelId={modelId} />
-          <div className="flex-1 min-h-[220px]">
+          <div className="h-72">
             <ChatPanel datasetId={datasetId} modelId={modelId} />
           </div>
         </div>
