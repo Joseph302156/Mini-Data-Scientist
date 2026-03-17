@@ -4,16 +4,29 @@ import pandas as pd
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
+from .chat import answer_chat_question
 from .db import Base, engine, get_db
-from .modeling import list_models_for_dataset, predict_with_model, train_model_for_dataset
+from .eda import compute_eda_for_dataset
+from .insights import generate_automated_insights
+from .modeling import (
+    list_models_for_dataset,
+    predict_with_model,
+    predict_with_model_raw,
+    suggest_targets_for_dataset,
+    train_model_for_dataset,
+)
 from .models import Dataset, DatasetVersion
 from .pipeline import get_dataset_state, ingest_and_process, list_dataset_states
 from .schemas import (
+    ChatRequest,
+    ChatResponse,
     DataPreview,
     DatasetInfo,
     DatasetStatus,
+    EdaResult,
     PredictRequest,
     PredictResponse,
+    TargetListResponse,
     TrainModelRequest,
     TrainedModelSummary,
     UploadResponse,
@@ -138,6 +151,20 @@ async def list_models(
     return list_models_for_dataset(db, dataset_id)
 
 
+@app.get("/api/datasets/{dataset_id}/targets", response_model=TargetListResponse)
+async def suggest_targets(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+) -> TargetListResponse:
+    obj = db.query(Dataset).filter(Dataset.id == dataset_id).one_or_none()
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    try:
+        return suggest_targets_for_dataset(db, dataset_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/models/{model_id}/predict", response_model=PredictResponse)
 async def predict(
     model_id: str,
@@ -150,6 +177,20 @@ async def predict(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Failed to generate predictions: {exc}") from exc
+
+
+@app.post("/api/models/{model_id}/predict_raw", response_model=PredictResponse)
+async def predict_raw(
+    model_id: str,
+    req: PredictRequest,
+    db: Session = Depends(get_db),
+) -> PredictResponse:
+    try:
+        return predict_with_model_raw(db, model_id, req)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to generate predictions from raw data: {exc}") from exc
 
 
 @app.get("/api/datasets/{dataset_id}/preview", response_model=DataPreview)
@@ -197,5 +238,48 @@ async def get_preview(
         n_cols=int(df.shape[1]),
         preview=preview_records,
     )
+
+
+@app.get("/api/datasets/{dataset_id}/eda", response_model=EdaResult)
+async def get_eda(
+    dataset_id: str,
+    stage: str = Query("cleaned", pattern="^(raw|cleaned|features)$"),
+    db: Session = Depends(get_db),
+) -> EdaResult:
+    try:
+        result = compute_eda_for_dataset(db, dataset_id, use_stage=stage)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+@app.get("/api/datasets/{dataset_id}/insights")
+async def get_insights(
+    dataset_id: str,
+    model_id: str | None = None,
+    stage: str = Query("cleaned", pattern="^(raw|cleaned|features)$"),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = generate_automated_insights(db, dataset_id, model_id=model_id, use_stage=stage)
+    except RuntimeError as exc:
+        # LLM not configured; still return EDA but with a clear message
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(
+    req: ChatRequest,
+    db: Session = Depends(get_db),
+) -> ChatResponse:
+    try:
+        return answer_chat_question(db, req)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

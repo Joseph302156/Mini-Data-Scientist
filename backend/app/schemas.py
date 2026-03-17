@@ -166,6 +166,67 @@ class TrainedModelSummary(BaseModel):
     feature_importances: Dict[str, float]
 
 
+class EdaHistogram(BaseModel):
+    column: str
+    bin_edges: List[float]
+    counts: List[int]
+
+
+class EdaCorrelation(BaseModel):
+    column_x: str
+    column_y: str
+    value: float
+
+
+class EdaLineSeries(BaseModel):
+    name: str
+    points: List[Dict[str, Any]]  # [{"x": iso_datetime or index, "y": float}]
+
+
+class EdaGroupedStat(BaseModel):
+    group_column: str
+    group_value: str
+    value_column: str
+    mean: float
+    sum: float
+    count: int
+
+
+class EdaResult(BaseModel):
+    dataset_id: str
+    stage: str
+    numeric_summary: Dict[str, Dict[str, float]]
+    histograms: List[EdaHistogram]
+    correlations: List[EdaCorrelation]
+    trends: List[EdaLineSeries]
+    grouped_stats: List[EdaGroupedStat]
+    datetime_column: Optional[str] = None
+    group_by_column: Optional[str] = None
+
+
+class TargetCandidate(BaseModel):
+    column: str
+    suggested_task: TaskType  # regression if numeric, classification otherwise
+
+
+class TargetListResponse(BaseModel):
+    dataset_id: str
+    candidates: List[TargetCandidate]
+
+
+class ChatRequest(BaseModel):
+    dataset_id: str
+    model_id: Optional[str] = None
+    question: str
+
+
+class ChatResponse(BaseModel):
+    dataset_id: str
+    model_id: Optional[str] = None
+    question: str
+    answer: str
+
+
 class PredictRequest(BaseModel):
     # List of raw feature dicts; keys should align with training features
     records: List[Dict[str, Any]]
