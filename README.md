@@ -1,19 +1,12 @@
 # Mini Data Scientist
 
-An end-to-end “mini data scientist” web app:
+Mini Data Scientist is a full-stack analytics playground that behaves like a lightweight “AI data scientist”:
 
-- Upload a CSV
-- Automatically profile, clean, and feature-engineer the data
-- Train simple models (regression / classification)
-- Explore EDA charts and correlations
-- Get AI-generated insights
-- Chat with an “AI analyst” about your dataset and models
+- Upload a CSV and get automatic profiling, cleaning, feature engineering, and EDA.
+- Train simple regression/classification models with metrics and feature importances.
+- See a modern dashboard with tables, charts, AI-generated insights, and an AI analyst chat.
 
-The stack:
-
-- **Backend**: FastAPI, pandas, scikit-learn, SQLAlchemy, Postgres, parquet
-- **Frontend**: React + Vite + Tailwind
-- **AI**: OpenAI chat completions (configurable via env)
+Tech stack: **FastAPI**, **pandas/scikit-learn**, **Postgres + parquet** on the backend, and **React + Vite + Tailwind** on the frontend, with **OpenAI** for insights and chat.
 
 ---
 
