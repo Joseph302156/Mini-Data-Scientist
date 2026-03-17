@@ -38,6 +38,11 @@ DATA_DIR = Path("data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def delete_dataset_state(dataset_id: str) -> None:
+    DATASETS.pop(dataset_id, None)
+
+
+
 def _infer_column_type(series: pd.Series) -> ColumnType:
     if pd.api.types.is_numeric_dtype(series):
         return ColumnType.NUMERIC

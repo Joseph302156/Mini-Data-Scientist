@@ -15,8 +15,8 @@ from .modeling import (
     suggest_targets_for_dataset,
     train_model_for_dataset,
 )
-from .models import Dataset, DatasetVersion
-from .pipeline import get_dataset_state, ingest_and_process, list_dataset_states
+from .models import Dataset, DatasetVersion, ModelRun
+from .pipeline import delete_dataset_state, get_dataset_state, ingest_and_process, list_dataset_states
 from .schemas import (
     ChatRequest,
     ChatResponse,
@@ -269,6 +269,26 @@ async def get_insights(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
+
+
+@app.delete("/api/datasets/{dataset_id}", status_code=204)
+async def delete_dataset(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+) -> None:
+    # remove in-memory cache
+    delete_dataset_state(dataset_id)
+
+    obj = db.query(Dataset).filter(Dataset.id == dataset_id).one_or_none()
+    if obj is None:
+        # idempotent delete
+        return
+
+    # delete associated models
+    db.query(ModelRun).filter(ModelRun.dataset_id == dataset_id).delete()
+    # delete dataset (dataset_versions are ON DELETE CASCADE)
+    db.delete(obj)
+    db.commit()
 
 
 @app.post("/api/chat", response_model=ChatResponse)

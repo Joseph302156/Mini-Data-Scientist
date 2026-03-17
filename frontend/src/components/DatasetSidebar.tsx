@@ -17,6 +17,7 @@ type Props = {
 export function DatasetSidebar({ selectedId, onSelect, onUploadComplete }: Props) {
   const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function refresh() {
     const res = await axios.get<DatasetInfo[]>("/api/datasets");
@@ -46,6 +47,20 @@ export function DatasetSidebar({ selectedId, onSelect, onUploadComplete }: Props
     }
   }
 
+  async function handleDelete(id: string) {
+    if (!window.confirm("Delete this dataset and all related models?")) return;
+    setDeletingId(id);
+    try {
+      await axios.delete(`/api/datasets/${id}`);
+      await refresh();
+      if (selectedId === id) {
+        onSelect("");
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-neutral-800">
@@ -65,26 +80,36 @@ export function DatasetSidebar({ selectedId, onSelect, onUploadComplete }: Props
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {datasets.map((d) => (
-          <button
-            key={d.dataset_id}
-            type="button"
-            onClick={() => onSelect(d.dataset_id)}
-            className={`w-full text-left px-3 py-2 rounded-md text-xs transition ${
-              selectedId === d.dataset_id
-                ? "bg-accent-500/20 text-neutral-50 border border-accent-500/40"
-                : "hover:bg-surface-700 text-neutral-300 border border-transparent"
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="truncate">{d.dataset_id.slice(0, 8)}</span>
-              <span className="text-[10px] uppercase tracking-wide text-neutral-500">
-                {d.status}
-              </span>
-            </div>
-            <div className="mt-1 text-[11px] text-neutral-500">
-              {d.n_rows.toLocaleString()} rows · {d.n_cols} cols
-            </div>
-          </button>
+          <div key={d.dataset_id} className="group flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onSelect(d.dataset_id)}
+              className={`flex-1 text-left px-3 py-2 rounded-md text-xs transition ${
+                selectedId === d.dataset_id
+                  ? "bg-accent-500/20 text-neutral-50 border border-accent-500/40"
+                  : "hover:bg-surface-700 text-neutral-300 border border-transparent"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="truncate">{d.dataset_id.slice(0, 8)}</span>
+                <span className="text-[10px] uppercase tracking-wide text-neutral-500">
+                  {d.status}
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] text-neutral-500">
+                {d.n_rows.toLocaleString()} rows · {d.n_cols} cols
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDelete(d.dataset_id)}
+              disabled={deletingId === d.dataset_id}
+              className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-red-400 text-xs px-1 transition"
+              title="Delete dataset"
+            >
+              ✕
+            </button>
+          </div>
         ))}
         {datasets.length === 0 && (
           <div className="text-[11px] text-neutral-500 px-2 pt-4">
