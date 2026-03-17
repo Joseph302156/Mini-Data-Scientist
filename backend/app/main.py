@@ -1,16 +1,26 @@
 from io import BytesIO
 
 import pandas as pd
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from sqlalchemy.orm import Session
 
+from .db import Base, engine, get_db
+from .modeling import list_models_for_dataset, predict_with_model, train_model_for_dataset
+from .models import Dataset, DatasetVersion
 from .pipeline import get_dataset_state, ingest_and_process, list_dataset_states
 from .schemas import (
     DataPreview,
     DatasetInfo,
     DatasetStatus,
+    PredictRequest,
+    PredictResponse,
+    TrainModelRequest,
+    TrainedModelSummary,
     UploadResponse,
 )
 
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Mini Data Scientist Backend")
 
@@ -21,7 +31,10 @@ async def health_check() -> dict:
 
 
 @app.post("/api/datasets/upload", response_model=UploadResponse)
-async def upload_dataset(file: UploadFile = File(...)) -> UploadResponse:
+async def upload_dataset(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> UploadResponse:
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV uploads are supported for now.")
 
@@ -34,7 +47,7 @@ async def upload_dataset(file: UploadFile = File(...)) -> UploadResponse:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {exc}") from exc
 
-    dataset_id, profile, cleaning, features = ingest_and_process(df)
+    dataset_id, profile, cleaning, features = ingest_and_process(db, file.filename, df)
 
     return UploadResponse(
         dataset_id=dataset_id,
@@ -47,64 +60,96 @@ async def upload_dataset(file: UploadFile = File(...)) -> UploadResponse:
 
 
 @app.get("/api/datasets", response_model=list[DatasetInfo])
-async def list_datasets() -> list[DatasetInfo]:
+async def list_datasets(db: Session = Depends(get_db)) -> list[DatasetInfo]:
+    rows = db.query(Dataset).order_by(Dataset.created_at.desc()).all()
     infos: list[DatasetInfo] = []
-    for state in list_dataset_states():
-        n_rows = int(len(state.raw_df))
-        n_cols = int(state.raw_df.shape[1])
-        status = DatasetStatus.RAW
-        if state.features_df is not None:
-            status = DatasetStatus.FEATURED
-        elif state.cleaned_df is not None:
-            status = DatasetStatus.CLEANED
-        elif state.profile is not None:
-            status = DatasetStatus.PROFILED
-
+    for row in rows:
         infos.append(
             DatasetInfo(
-                dataset_id=state.dataset_id,
-                n_rows=n_rows,
-                n_cols=n_cols,
-                status=status,
+                dataset_id=str(row.id),
+                n_rows=row.n_rows or 0,
+                n_cols=row.n_cols or 0,
+                status=DatasetStatus(row.status),
             )
         )
     return infos
 
 
-@app.get("/api/datasets/{dataset_id}/profile")
-async def get_profile(dataset_id: str):
-    try:
-        state = get_dataset_state(dataset_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Dataset not found") from None
+def _load_dataset_json_or_404(db: Session, dataset_id: str) -> Dataset:
+    obj = db.query(Dataset).filter(Dataset.id == dataset_id).one_or_none()
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return obj
 
-    if state.profile is None:
+
+@app.get("/api/datasets/{dataset_id}/profile")
+async def get_profile(dataset_id: str, db: Session = Depends(get_db)):
+    obj = _load_dataset_json_or_404(db, dataset_id)
+    if obj.profile_json is None:
         raise HTTPException(status_code=404, detail="Profile not available for this dataset")
-    return state.profile
+    return obj.profile_json
 
 
 @app.get("/api/datasets/{dataset_id}/cleaning")
-async def get_cleaning_result(dataset_id: str):
-    try:
-        state = get_dataset_state(dataset_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Dataset not found") from None
-
-    if state.cleaning_result is None:
+async def get_cleaning_result(dataset_id: str, db: Session = Depends(get_db)):
+    obj = _load_dataset_json_or_404(db, dataset_id)
+    if obj.cleaning_json is None:
         raise HTTPException(status_code=404, detail="Cleaning result not available for this dataset")
-    return state.cleaning_result
+    return obj.cleaning_json
 
 
 @app.get("/api/datasets/{dataset_id}/features")
-async def get_feature_result(dataset_id: str):
-    try:
-        state = get_dataset_state(dataset_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Dataset not found") from None
-
-    if state.feature_result is None:
+async def get_feature_result(dataset_id: str, db: Session = Depends(get_db)):
+    obj = _load_dataset_json_or_404(db, dataset_id)
+    if obj.features_json is None:
         raise HTTPException(status_code=404, detail="Feature result not available for this dataset")
-    return state.feature_result
+    return obj.features_json
+
+
+@app.post("/api/datasets/{dataset_id}/models", response_model=TrainedModelSummary)
+async def train_model(
+    dataset_id: str,
+    req: TrainModelRequest,
+    db: Session = Depends(get_db),
+) -> TrainedModelSummary:
+    # simple existence check
+    obj = db.query(Dataset).filter(Dataset.id == dataset_id).one_or_none()
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    try:
+        summary = train_model_for_dataset(db, dataset_id, req)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to train model: {exc}") from exc
+
+    return summary
+
+
+@app.get("/api/datasets/{dataset_id}/models", response_model=list[TrainedModelSummary])
+async def list_models(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+) -> list[TrainedModelSummary]:
+    obj = db.query(Dataset).filter(Dataset.id == dataset_id).one_or_none()
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return list_models_for_dataset(db, dataset_id)
+
+
+@app.post("/api/models/{model_id}/predict", response_model=PredictResponse)
+async def predict(
+    model_id: str,
+    req: PredictRequest,
+    db: Session = Depends(get_db),
+) -> PredictResponse:
+    try:
+        return predict_with_model(db, model_id, req)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to generate predictions: {exc}") from exc
 
 
 @app.get("/api/datasets/{dataset_id}/preview", response_model=DataPreview)
@@ -113,21 +158,34 @@ async def get_preview(
     stage: str = Query("raw", pattern="^(raw|cleaned|features)$"),
     limit: int = Query(5, ge=1, le=100),
 ) -> DataPreview:
+    # first try in-memory cache
     try:
         state = get_dataset_state(dataset_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="Dataset not found") from None
+        state = None
 
-    if stage == "raw":
-        df = state.raw_df
-    elif stage == "cleaned":
-        if state.cleaned_df is None:
-            raise HTTPException(status_code=404, detail="Cleaned data not available for this dataset")
-        df = state.cleaned_df
-    else:
-        if state.features_df is None:
-            raise HTTPException(status_code=404, detail="Feature data not available for this dataset")
-        df = state.features_df
+    df = None
+    if state is not None:
+        if stage == "raw":
+            df = state.raw_df
+        elif stage == "cleaned":
+            df = state.cleaned_df
+        else:
+            df = state.features_df
+
+    # fall back to persisted parquet if needed
+    if df is None:
+        version = (
+            db.query(DatasetVersion)
+            .filter(DatasetVersion.dataset_id == dataset_id, DatasetVersion.stage == stage)
+            .one_or_none()
+        )
+        if version is None:
+            raise HTTPException(status_code=404, detail=f"{stage.capitalize()} data not available for this dataset")
+        try:
+            df = pd.read_parquet(version.storage_path)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"Failed to load stored data: {exc}") from exc
 
     head = df.head(limit)
     preview_records = head.to_dict(orient="records")

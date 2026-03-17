@@ -132,3 +132,54 @@ class DataPreview(BaseModel):
     preview: List[Dict[str, Any]]
 
 
+class TaskType(str, Enum):
+    REGRESSION = "regression"
+    CLASSIFICATION = "classification"
+
+
+class ModelType(str, Enum):
+    LINEAR = "linear"
+    RANDOM_FOREST = "random_forest"
+
+
+class TrainModelRequest(BaseModel):
+    target_column: str
+    task_type: TaskType
+    model_type: ModelType = ModelType.RANDOM_FOREST
+    test_size: float = Field(0.2, ge=0.05, le=0.5)
+    random_state: int = 42
+
+
+class Metric(BaseModel):
+    name: str
+    value: float
+
+
+class TrainedModelSummary(BaseModel):
+    model_id: str
+    dataset_id: str
+    target_column: str
+    task_type: TaskType
+    model_type: ModelType
+    created_at: str
+    metrics: List[Metric]
+    feature_importances: Dict[str, float]
+
+
+class PredictRequest(BaseModel):
+    # List of raw feature dicts; keys should align with training features
+    records: List[Dict[str, Any]]
+
+
+class PredictResponse(BaseModel):
+    model_id: str
+    dataset_id: str
+    target_column: str
+    task_type: TaskType
+    model_type: ModelType
+    predictions: List[Any]
+    probabilities: Optional[List[Dict[str, float]]] = None
+
+
+
+

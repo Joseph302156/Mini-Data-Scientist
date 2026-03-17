@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Tuple
 from uuid import uuid4
 
 import numpy as np
 import pandas as pd
+from sqlalchemy.orm import Session
 
 from .schemas import (
     CleaningColumnSummary,
@@ -31,6 +33,9 @@ class DatasetState:
 
 
 DATASETS: Dict[str, DatasetState] = {}
+
+DATA_DIR = Path("data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _infer_column_type(series: pd.Series) -> ColumnType:
@@ -350,7 +355,13 @@ def _auto_feature_engineer(
     return df_features, result
 
 
-def ingest_and_process(df: pd.DataFrame) -> tuple[str, DatasetProfile, CleaningResult, FeatureResult]:
+def ingest_and_process(
+    db: Session,
+    filename: str,
+    df: pd.DataFrame,
+) -> tuple[str, DatasetProfile, CleaningResult, FeatureResult]:
+    from .models import Dataset, DatasetVersion
+
     dataset_id = str(uuid4())
 
     profile = profile_dataset(dataset_id, df)
@@ -366,6 +377,50 @@ def ingest_and_process(df: pd.DataFrame) -> tuple[str, DatasetProfile, CleaningR
         cleaning_result=cleaning_result,
         feature_result=feature_result,
     )
+
+    # persist minimal metadata + JSON artefacts
+    db_obj = Dataset(
+        id=dataset_id,
+        filename=filename,
+        n_rows=len(df),
+        n_cols=df.shape[1],
+        status="featured",
+        profile_json=profile.model_dump(),
+        cleaning_json=cleaning_result.model_dump(),
+        features_json=feature_result.model_dump(),
+    )
+    db.add(db_obj)
+
+    # persist dataframes as parquet
+    raw_path = DATA_DIR / f"{dataset_id}_raw.parquet"
+    cleaned_path = DATA_DIR / f"{dataset_id}_cleaned.parquet"
+    features_path = DATA_DIR / f"{dataset_id}_features.parquet"
+
+    df.to_parquet(raw_path)
+    cleaned_df.to_parquet(cleaned_path)
+    features_df.to_parquet(features_path)
+
+    db.add_all(
+        [
+            DatasetVersion(
+                dataset_id=dataset_id,
+                stage="raw",
+                storage_path=str(raw_path),
+            ),
+            DatasetVersion(
+                dataset_id=dataset_id,
+                stage="cleaned",
+                storage_path=str(cleaned_path),
+            ),
+            DatasetVersion(
+                dataset_id=dataset_id,
+                stage="features",
+                storage_path=str(features_path),
+            ),
+        ]
+    )
+
+    db.commit()
 
     return dataset_id, profile, cleaning_result, feature_result
 
