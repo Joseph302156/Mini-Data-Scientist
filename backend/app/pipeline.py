@@ -26,6 +26,8 @@ class DatasetState:
     cleaned_df: pd.DataFrame | None = None
     features_df: pd.DataFrame | None = None
     profile: DatasetProfile | None = None
+    cleaning_result: CleaningResult | None = None
+    feature_result: FeatureResult | None = None
 
 
 DATASETS: Dict[str, DatasetState] = {}
@@ -361,7 +363,21 @@ def ingest_and_process(df: pd.DataFrame) -> tuple[str, DatasetProfile, CleaningR
         cleaned_df=cleaned_df,
         features_df=features_df,
         profile=profile,
+        cleaning_result=cleaning_result,
+        feature_result=feature_result,
     )
 
     return dataset_id, profile, cleaning_result, feature_result
+
+
+def get_dataset_state(dataset_id: str) -> DatasetState:
+    state = DATASETS.get(dataset_id)
+    if state is None:
+        raise KeyError(f"Unknown dataset_id: {dataset_id}")
+    return state
+
+
+def list_dataset_states() -> list[DatasetState]:
+    return list(DATASETS.values())
+
 

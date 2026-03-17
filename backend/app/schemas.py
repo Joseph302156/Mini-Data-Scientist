@@ -116,3 +116,19 @@ class UploadResponse(BaseModel):
     cleaning: CleaningResult
     features: FeatureResult
 
+
+class DatasetInfo(BaseModel):
+    dataset_id: str
+    n_rows: int
+    n_cols: int
+    status: DatasetStatus
+
+
+class DataPreview(BaseModel):
+    dataset_id: str
+    stage: str  # "raw" | "cleaned" | "features"
+    n_rows: int
+    n_cols: int
+    preview: List[Dict[str, Any]]
+
+
