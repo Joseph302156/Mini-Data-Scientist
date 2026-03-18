@@ -273,7 +273,8 @@ def _auto_feature_engineer(
             if col_profile.flags.skewed and s.min() >= 0:
                 transformed = np.log1p(s)
                 feature_name = f"{col}_log1p"
-                source = f"{col} (log1p)"
+                # Keep `source` as the original column name so raw-schema prediction can map inputs correctly.
+                source = col
             else:
                 transformed = s
                 feature_name = col

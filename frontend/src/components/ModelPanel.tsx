@@ -40,9 +40,14 @@ type Props = {
   datasetId: string | null;
   selectedModelId: string | null;
   onSelectModel: (id: string | null) => void;
+  onOpenTrainer?: (seed: {
+    target: string;
+    taskType: "regression" | "classification";
+    modelType: "linear" | "random_forest";
+  }) => void;
 };
 
-export function ModelPanel({ datasetId, selectedModelId, onSelectModel }: Props) {
+export function ModelPanel({ datasetId, selectedModelId, onSelectModel, onOpenTrainer }: Props) {
   const [targets, setTargets] = useState<TargetCandidate[]>([]);
   const [target, setTarget] = useState<string>("");
   const [taskType, setTaskType] = useState<"regression" | "classification">("regression");
@@ -73,6 +78,12 @@ export function ModelPanel({ datasetId, selectedModelId, onSelectModel }: Props)
   }, [datasetId]);
 
   async function train() {
+    // Training happens in the full-page Model & Predict workspace to give it room
+    // for visualization + prediction UI.
+    if (onOpenTrainer) {
+      onOpenTrainer({ target, taskType, modelType });
+      return;
+    }
     if (!datasetId || !target) return;
     setTraining(true);
     try {
@@ -93,6 +104,15 @@ export function ModelPanel({ datasetId, selectedModelId, onSelectModel }: Props)
     <div className="rounded-xl border border-neutral-800 bg-surface-800/70 backdrop-blur-md p-4 text-xs space-y-3">
       <div className="flex items-center justify-between">
         <div className="text-xs font-medium text-neutral-200">Models</div>
+        {datasetId && (
+          <button
+            type="button"
+            onClick={() => (onOpenTrainer ? onOpenTrainer() : undefined)}
+            className="px-2 py-1 rounded-md border border-neutral-700 text-[11px] text-neutral-300 hover:border-neutral-600 hover:bg-surface-700 transition"
+          >
+            Model & Predict
+          </button>
+        )}
       </div>
       {!datasetId && (
         <div className="text-[11px] text-neutral-500">

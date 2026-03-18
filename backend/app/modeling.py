@@ -556,14 +556,20 @@ def predict_with_model_raw(
 
             if meta.type == "numeric":
                 # numeric feature, possibly log1p-standardized
-                src_name = source
-                raw_val = record.get(src_name, 0.0)
+                # For log1p-transformed numeric features, the raw input comes from the base column
+                # (e.g. `revenue_log1p` expects `revenue` in the input record).
+                if fname.endswith("_log1p"):
+                    raw_col = fname[: -len("_log1p")]
+                    raw_val = record.get(raw_col, 0.0)
+                else:
+                    src_name = source
+                    raw_val = record.get(src_name, 0.0)
                 try:
                     x = float(raw_val)
                 except (TypeError, ValueError):
                     x = 0.0
 
-                if fname.endswith("_log1p") and fname.startswith(src_name):
+                if fname.endswith("_log1p"):
                     x = float(np.log1p(max(x, 0.0)))
 
                 stats = feature_stats.get(fname)
