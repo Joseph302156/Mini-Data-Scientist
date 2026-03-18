@@ -467,7 +467,8 @@ def predict_with_model(
     X = df.to_numpy()
 
     y_pred = model.predict(X)
-    predictions: List[Any] = [np.asscalar(p) if np.ndim(p) == 0 else p for p in y_pred]  # type: ignore[arg-type]
+    # NumPy removed `np.asscalar`; use `.item()` for scalar conversion.
+    predictions: List[Any] = [p.item() if np.ndim(p) == 0 else p for p in y_pred]  # type: ignore[arg-type]
 
     probabilities: List[Dict[str, float]] | None = None
     if task_type == TaskType.CLASSIFICATION and hasattr(model, "predict_proba"):
@@ -614,7 +615,8 @@ def predict_with_model_raw(
 
     X = np.asarray(rows)
     y_pred = model.predict(X)
-    predictions: List[Any] = [np.asscalar(p) if np.ndim(p) == 0 else p for p in y_pred]  # type: ignore[arg-type]
+    # NumPy removed `np.asscalar`; use `.item()` for scalar conversion.
+    predictions: List[Any] = [p.item() if np.ndim(p) == 0 else p for p in y_pred]  # type: ignore[arg-type]
 
     probabilities: List[Dict[str, float]] | None = None
     if task_type == TaskType.CLASSIFICATION and hasattr(model, "predict_proba"):
