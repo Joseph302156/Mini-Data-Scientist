@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from .models import Dataset, DatasetVersion, ModelRun
 from .schemas import (
     FeatureResult,
+    FeatureStat,
     Metric,
     ModelType,
     PredictRequest,
@@ -29,6 +30,174 @@ from .schemas import (
 
 MODELS_DIR = Path("models")
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+_TIME_COMPONENT_SUFFIXES = ("_year", "_month", "_dayofweek")
+
+
+def _build_model_explanation(
+    task_type: TaskType,
+    model_type: ModelType,
+    target_column: str,
+    metrics: List[Metric],
+    top_feature_names: List[str],
+) -> str:
+    top_feats = ", ".join(top_feature_names[:3]) if top_feature_names else "the most important features"
+    if task_type == TaskType.REGRESSION:
+        rmse = next((m.value for m in metrics if m.name == "rmse"), None)
+        r2 = next((m.value for m in metrics if m.name == "r2"), None)
+        rmse_txt = f"typical error of about {rmse:.3g} in the target’s units" if rmse is not None else "typical prediction error"
+        r2_txt = f"it captures roughly {r2:.3g} of the target’s variation (R²)" if r2 is not None else "it learns patterns in the data"
+        return (
+            f"This model predicts `{target_column}` as a number. "
+            f"It is built to generalize from your data, giving you a prediction for new rows using the patterns in {top_feats}. "
+            f"On the held-out test set, it has a {rmse_txt} and {r2_txt}."
+        )
+    acc = next((m.value for m in metrics if m.name == "accuracy"), None)
+    acc_txt = f"accuracy of about {acc:.3g}" if acc is not None else "accuracy on the test set"
+    return (
+        f"This model predicts `{target_column}` as a label (classification). "
+        f"It decides which class a new row most likely belongs to using the strongest signals in {top_feats}. "
+        f"On the held-out test set, it achieves {acc_txt}."
+    )
+
+
+def _is_time_component_feature(feature_name: str) -> bool:
+    return any(feature_name.endswith(sfx) for sfx in _TIME_COMPONENT_SUFFIXES)
+
+
+def _load_cleaned_df_and_feature_result(
+    db: Session,
+    dataset_id: str,
+) -> tuple[pd.DataFrame, FeatureResult]:
+    version = (
+        db.query(DatasetVersion)
+        .filter(DatasetVersion.dataset_id == dataset_id, DatasetVersion.stage == "cleaned")
+        .one_or_none()
+    )
+    if version is None:
+        raise ValueError("Cleaned data not available for this dataset")
+
+    cleaned_df = pd.read_parquet(version.storage_path)
+
+    ds = db.query(Dataset).filter(Dataset.id == dataset_id).one_or_none()
+    if ds is None or ds.features_json is None:
+        raise ValueError("Feature metadata not available for this dataset")
+
+    feature_result = FeatureResult(**ds.features_json)
+    return cleaned_df, feature_result
+
+
+def _compute_feature_stats_for_names(
+    cleaned_df: pd.DataFrame,
+    feature_result: FeatureResult,
+    feature_names: List[str],
+) -> List[FeatureStat]:
+    meta_by_name: Dict[str, Any] = {m.name: m for m in feature_result.feature_summary}
+    out: List[FeatureStat] = []
+
+    for fname in feature_names:
+        meta = meta_by_name.get(fname)
+        if meta is None:
+            continue
+
+        # Time-derived features: omit totals.
+        if _is_time_component_feature(fname):
+            # meta.source is the original datetime column
+            dt = pd.to_datetime(cleaned_df.get(meta.source), errors="coerce")
+            if fname.endswith("_year"):
+                series = dt.dt.year
+            elif fname.endswith("_month"):
+                series = dt.dt.month
+            else:
+                series = dt.dt.dayofweek
+
+            series = pd.to_numeric(series, errors="coerce").dropna()
+            mean = float(series.mean()) if not series.empty else None
+            out.append(
+                FeatureStat(
+                    feature_name=fname,
+                    feature_type="time_component",
+                    mean=mean,
+                    total=None,
+                    count_true=None,
+                    prevalence=None,
+                    note="Time-derived feature (totals omitted; totals are not meaningful for calendar parts).",
+                )
+            )
+            continue
+
+        if meta.type == "binary":
+            # One-hot: feature name is `${source}_${category}`
+            source = meta.source
+            prefix = f"{source}_"
+            category = fname[len(prefix) :] if fname.startswith(prefix) else fname
+            series_raw = cleaned_df.get(source)
+            if series_raw is None:
+                continue
+            series_str = series_raw.astype(str)
+            count_true = int((series_str == category).sum())
+            total_rows = int(len(series_str))
+            prevalence = (count_true / total_rows) if total_rows > 0 else None
+            out.append(
+                FeatureStat(
+                    feature_name=fname,
+                    feature_type="binary",
+                    mean=prevalence,
+                    total=float(count_true),
+                    count_true=count_true,
+                    prevalence=prevalence,
+                    note=f"Category `{category}` occurrences (one-hot encoded).",
+                )
+            )
+            continue
+
+        # Numeric features (including log1p-transformed numeric).
+        if meta.type == "numeric":
+            raw_series: pd.Series
+
+            if fname.endswith("_log1p"):
+                raw_col = fname[: -len("_log1p")]
+                raw_obj = cleaned_df.get(raw_col)
+                if raw_obj is None:
+                    continue
+                raw_series = pd.to_numeric(raw_obj, errors="coerce")
+                raw_series = raw_series.fillna(0.0)
+                transformed = np.log1p(np.clip(raw_series.to_numpy(), a_min=0, a_max=None))
+                mean = float(np.mean(transformed)) if transformed.size else None
+                total = float(np.sum(transformed)) if transformed.size else None
+                out.append(
+                    FeatureStat(
+                        feature_name=fname,
+                        feature_type="numeric",
+                        mean=mean,
+                        total=total,
+                        note="Numeric feature (log1p-transformed). Totals are in the transformed space.",
+                    )
+                )
+                continue
+
+            # Regular numeric: totals are meaningful in the cleaned numeric space.
+            raw_col = fname
+            raw_obj = cleaned_df.get(raw_col)
+            if raw_obj is None:
+                continue
+            raw_series = pd.to_numeric(raw_obj, errors="coerce")
+            raw_series = raw_series.fillna(0.0)
+            mean = float(raw_series.mean()) if raw_series.notna().any() else None
+            total = float(raw_series.sum()) if raw_series.notna().any() else None
+            out.append(
+                FeatureStat(
+                    feature_name=fname,
+                    feature_type="numeric",
+                    mean=mean,
+                    total=total,
+                    note="Numeric feature totals are meaningful in the cleaned value space.",
+                )
+            )
+            continue
+
+    return out
 
 
 def _build_model(
@@ -127,6 +296,29 @@ def train_model_for_dataset(
     metrics = _compute_metrics(req.task_type, y_test, y_pred)
     importances = _extract_feature_importances(model, feature_names)
 
+    # Enrich the UI with natural-language explanation + intuitive stats
+    top_feature_names = sorted(importances.keys(), key=lambda k: importances[k], reverse=True)[:6]
+    top_feature_stats: List[FeatureStat] = []
+    model_explanation: str | None = None
+    try:
+        cleaned_df, feature_result = _load_cleaned_df_and_feature_result(db, dataset_id)
+        top_feature_stats = _compute_feature_stats_for_names(
+            cleaned_df=cleaned_df,
+            feature_result=feature_result,
+            feature_names=top_feature_names,
+        )
+        model_explanation = _build_model_explanation(
+            task_type=req.task_type,
+            model_type=req.model_type,
+            target_column=req.target_column,
+            metrics=metrics,
+            top_feature_names=top_feature_names,
+        )
+    except Exception:
+        # Keep training resilient; UI can still show metrics even if stats enrichment fails.
+        top_feature_stats = []
+        model_explanation = None
+
     model_id = str(uuid4())
     model_path = MODELS_DIR / f"{model_id}.joblib"
     joblib.dump(
@@ -162,6 +354,8 @@ def train_model_for_dataset(
         created_at=db_obj.created_at.isoformat(),
         metrics=metrics,
         feature_importances=importances,
+        model_explanation=model_explanation,
+        top_feature_stats=top_feature_stats if top_feature_stats else None,
     )
 
 
@@ -172,9 +366,39 @@ def list_models_for_dataset(db: Session, dataset_id: str) -> List[TrainedModelSu
         .order_by(ModelRun.created_at.desc())
         .all()
     )
+    cleaned_df: pd.DataFrame | None = None
+    feature_result: FeatureResult | None = None
     results: List[TrainedModelSummary] = []
     for r in runs:
         metrics = [Metric(**m) for m in r.metrics_json]
+        top_feature_names = sorted(
+            (r.feature_importances_json or {}).keys(),
+            key=lambda k: (r.feature_importances_json or {}).get(k, 0.0),
+            reverse=True,
+        )[:6]
+
+        top_feature_stats: List[FeatureStat] | None = None
+        model_explanation: str | None = None
+        try:
+            if cleaned_df is None or feature_result is None:
+                cleaned_df, feature_result = _load_cleaned_df_and_feature_result(db, dataset_id)
+            if feature_result is not None and cleaned_df is not None:
+                top_feature_stats = _compute_feature_stats_for_names(
+                    cleaned_df=cleaned_df,
+                    feature_result=feature_result,
+                    feature_names=top_feature_names,
+                )
+                model_explanation = _build_model_explanation(
+                    task_type=TaskType(r.task_type),
+                    model_type=ModelType(r.model_type),
+                    target_column=r.target_column,
+                    metrics=metrics,
+                    top_feature_names=top_feature_names,
+                )
+        except Exception:
+            top_feature_stats = None
+            model_explanation = None
+
         results.append(
             TrainedModelSummary(
                 model_id=str(r.id),
@@ -185,6 +409,8 @@ def list_models_for_dataset(db: Session, dataset_id: str) -> List[TrainedModelSu
                 created_at=r.created_at.isoformat(),
                 metrics=metrics,
                 feature_importances=r.feature_importances_json or {},
+                model_explanation=model_explanation,
+                top_feature_stats=top_feature_stats,
             )
         )
     return results

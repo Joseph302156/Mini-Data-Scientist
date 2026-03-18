@@ -164,6 +164,18 @@ class TrainedModelSummary(BaseModel):
     created_at: str
     metrics: List[Metric]
     feature_importances: Dict[str, float]
+    model_explanation: Optional[str] = None
+    top_feature_stats: Optional[List["FeatureStat"]] = None
+
+
+class FeatureStat(BaseModel):
+    feature_name: str
+    feature_type: str  # "numeric" | "binary" | "time_component"
+    mean: Optional[float] = None
+    total: Optional[float] = None  # sum / total occurrences where meaningful
+    count_true: Optional[int] = None  # for one-hot/binary
+    prevalence: Optional[float] = None  # fraction true for one-hot/binary
+    note: Optional[str] = None
 
 
 class EdaHistogram(BaseModel):
@@ -240,6 +252,10 @@ class PredictResponse(BaseModel):
     model_type: ModelType
     predictions: List[Any]
     probabilities: Optional[List[Dict[str, float]]] = None
+
+
+# Resolve forward references for optional fields.
+TrainedModelSummary.model_rebuild()
 
 
 

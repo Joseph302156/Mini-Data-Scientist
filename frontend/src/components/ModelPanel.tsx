@@ -22,6 +22,18 @@ type TrainedModelSummary = {
   created_at: string;
   metrics: Metric[];
   feature_importances: Record<string, number>;
+  model_explanation?: string | null;
+  top_feature_stats?: FeatureStat[] | null;
+};
+
+type FeatureStat = {
+  feature_name: string;
+  feature_type: "numeric" | "binary" | "time_component";
+  mean: number | null;
+  total: number | null;
+  count_true: number | null;
+  prevalence: number | null;
+  note: string | null;
 };
 
 type Props = {
@@ -168,6 +180,58 @@ export function ModelPanel({ datasetId, selectedModelId, onSelectModel }: Props)
                       .slice(0, 3)
                       .map(([name]) => name)
                       .join(", ")}
+                  </div>
+                )}
+
+                {m.model_explanation && (
+                  <div className="mt-2 text-[11px] text-neutral-300 leading-relaxed max-h-14 overflow-hidden">
+                    {m.model_explanation}
+                  </div>
+                )}
+
+                {m.top_feature_stats && m.top_feature_stats.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {m.top_feature_stats.slice(0, 4).map((fs) => {
+                      const avgTxt =
+                        typeof fs.mean === "number" && Number.isFinite(fs.mean)
+                          ? fs.mean.toFixed(2)
+                          : "—";
+
+                      if (fs.feature_type === "time_component") {
+                        return (
+                          <div key={fs.feature_name} className="text-[10px] text-neutral-500 truncate">
+                            {fs.feature_name}: avg {avgTxt}
+                          </div>
+                        );
+                      }
+
+                      if (fs.feature_type === "binary") {
+                        const countTxt =
+                          typeof fs.count_true === "number" && Number.isFinite(fs.count_true)
+                            ? fs.count_true.toLocaleString()
+                            : "—";
+                        const prevTxt =
+                          typeof fs.prevalence === "number" && Number.isFinite(fs.prevalence)
+                            ? `${(fs.prevalence * 100).toFixed(1)}%`
+                            : "—";
+                        return (
+                          <div key={fs.feature_name} className="text-[10px] text-neutral-500 truncate">
+                            {fs.feature_name}: {prevTxt} true ({countTxt} rows)
+                          </div>
+                        );
+                      }
+
+                      const totalTxt =
+                        typeof fs.total === "number" && Number.isFinite(fs.total)
+                          ? fs.total.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                          : "—";
+
+                      return (
+                        <div key={fs.feature_name} className="text-[10px] text-neutral-500 truncate">
+                          {fs.feature_name}: avg {avgTxt} · total {totalTxt}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </button>
