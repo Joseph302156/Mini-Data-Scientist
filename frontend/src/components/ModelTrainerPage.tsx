@@ -98,6 +98,7 @@ export function ModelTrainerPage({
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [predicting, setPredicting] = useState(false);
   const [predictResult, setPredictResult] = useState<PredictResponse | null>(null);
+  const [predictError, setPredictError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!datasetId) {
@@ -181,6 +182,7 @@ export function ModelTrainerPage({
     for (const k of requiredInputKeys) next[k] = inputs[k] ?? "";
     setInputs(next);
     setPredictResult(null);
+    setPredictError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedModelId, requiredInputKeys.join("|")]);
 
@@ -224,12 +226,22 @@ export function ModelTrainerPage({
   async function predict() {
     if (!selectedModelId) return;
     setPredicting(true);
+    setPredictError(null);
     try {
       const rec = buildRawRecord();
       const res = await axios.post<PredictResponse>(`/api/models/${selectedModelId}/predict_raw`, {
         records: [rec],
       });
       setPredictResult(res.data);
+    } catch (e: any) {
+      const detail =
+        e?.response?.data?.detail ||
+        e?.response?.data?.message ||
+        e?.message ||
+        "Prediction request failed.";
+      setPredictError(String(detail));
+      // eslint-disable-next-line no-console
+      console.error(e);
     } finally {
       setPredicting(false);
     }
@@ -489,6 +501,12 @@ export function ModelTrainerPage({
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {predictError && (
+                  <div className="rounded-md border border-red-900/50 bg-red-900/20 p-3 text-[11px] text-red-200">
+                    {predictError}
                   </div>
                 )}
               </>
