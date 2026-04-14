@@ -3,6 +3,7 @@ import axios from "axios";
 
 type DatasetInfo = {
   dataset_id: string;
+  filename: string;
   n_rows: number;
   n_cols: number;
   status: string;
@@ -90,13 +91,13 @@ export function DatasetSidebar({ selectedId, onSelect, onUploadComplete }: Props
                   : "hover:bg-surface-700 text-neutral-300 border border-transparent"
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="truncate">{d.dataset_id.slice(0, 8)}</span>
-                <span className="text-[10px] uppercase tracking-wide text-neutral-500">
+              <div className="flex items-center justify-between gap-1">
+                <span className="truncate text-neutral-100">{d.filename}</span>
+                <span className="text-[10px] uppercase tracking-wide text-neutral-500 shrink-0">
                   {d.status}
                 </span>
               </div>
-              <div className="mt-1 text-[11px] text-neutral-500">
+              <div className="mt-0.5 text-[11px] text-neutral-500">
                 {d.n_rows.toLocaleString()} rows · {d.n_cols} cols
               </div>
             </button>
