@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .chat import answer_chat_question
 from .db import Base, engine, get_db
 from .eda import compute_eda_for_dataset
-from .insights import generate_automated_insights
+from .insights import generate_automated_insights, generate_structured_insights
 from .modeling import (
     list_models_for_dataset,
     predict_with_model,
@@ -22,8 +22,11 @@ from .schemas import (
     ChatResponse,
     DataPreview,
     DatasetInfo,
+    DatasetOverview,
+    DatasetReport,
     DatasetStatus,
     EdaResult,
+    Metric,
     PredictRequest,
     PredictResponse,
     TargetListResponse,
@@ -80,6 +83,7 @@ async def list_datasets(db: Session = Depends(get_db)) -> list[DatasetInfo]:
         infos.append(
             DatasetInfo(
                 dataset_id=str(row.id),
+                filename=row.filename,
                 n_rows=row.n_rows or 0,
                 n_cols=row.n_cols or 0,
                 status=DatasetStatus(row.status),
@@ -269,6 +273,92 @@ async def get_insights(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
+
+
+@app.get("/api/datasets/{dataset_id}/report", response_model=DatasetReport)
+async def get_report(
+    dataset_id: str,
+    model_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> DatasetReport:
+    ds = _load_dataset_json_or_404(db, dataset_id)
+
+    # EDA
+    try:
+        eda_result = compute_eda_for_dataset(db, dataset_id, use_stage="cleaned")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Build dataset overview from profile JSON
+    profile = ds.profile_json or {}
+    numeric_cols = 0
+    categorical_cols = 0
+    datetime_cols = 0
+    total_missing = 0
+    total_cells = max((ds.n_rows or 0) * (ds.n_cols or 1), 1)
+    for col in profile.get("columns", []):
+        t = col.get("inferred_type", "")
+        if t == "numeric":
+            numeric_cols += 1
+        elif t == "categorical":
+            categorical_cols += 1
+        elif t == "datetime":
+            datetime_cols += 1
+        total_missing += col.get("missing_count", 0)
+
+    overview = DatasetOverview(
+        n_rows=ds.n_rows or 0,
+        n_cols=ds.n_cols or 0,
+        numeric_cols=numeric_cols,
+        categorical_cols=categorical_cols,
+        datetime_cols=datetime_cols,
+        missing_values_pct=round(total_missing / total_cells * 100, 1),
+    )
+
+    # Resolve model: explicit model_id or latest trained model
+    resolved_model_run: ModelRun | None = None
+    if model_id:
+        resolved_model_run = db.query(ModelRun).filter(ModelRun.id == model_id).one_or_none()
+    else:
+        resolved_model_run = (
+            db.query(ModelRun)
+            .filter(ModelRun.dataset_id == dataset_id)
+            .order_by(ModelRun.created_at.desc())
+            .first()
+        )
+
+    model_summary: TrainedModelSummary | None = None
+    if resolved_model_run is not None:
+        fi = resolved_model_run.feature_importances_json or {}
+        metrics_raw = resolved_model_run.metrics_json or {}
+        metrics = [Metric(name=k, value=float(v)) for k, v in metrics_raw.items()]
+        model_summary = TrainedModelSummary(
+            model_id=str(resolved_model_run.id),
+            dataset_id=dataset_id,
+            target_column=resolved_model_run.target_column,
+            task_type=resolved_model_run.task_type,
+            model_type=resolved_model_run.model_type,
+            created_at=resolved_model_run.created_at.isoformat(),
+            metrics=metrics,
+            feature_importances=fi,
+        )
+
+    # Structured AI insights
+    insights = generate_structured_insights(
+        db,
+        dataset_id,
+        model_id=str(resolved_model_run.id) if resolved_model_run else None,
+        use_stage="cleaned",
+    )
+
+    return DatasetReport(
+        dataset_id=dataset_id,
+        filename=ds.filename,
+        overview=overview,
+        eda=eda_result,
+        insights=insights,
+        model=model_summary,
+    )
 
 
 @app.delete("/api/datasets/{dataset_id}", status_code=204)

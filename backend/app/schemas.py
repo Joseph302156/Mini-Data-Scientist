@@ -119,6 +119,7 @@ class UploadResponse(BaseModel):
 
 class DatasetInfo(BaseModel):
     dataset_id: str
+    filename: str
     n_rows: int
     n_cols: int
     status: DatasetStatus
@@ -256,6 +257,40 @@ class PredictResponse(BaseModel):
 
 # Resolve forward references for optional fields.
 TrainedModelSummary.model_rebuild()
+
+
+# ── Structured Insights / Report ─────────────────────────────────────────────
+
+class InsightFinding(BaseModel):
+    title: str
+    detail: str
+    type: str  # trend | correlation | highlight | warning | model
+
+
+class StructuredInsights(BaseModel):
+    headline: str
+    summary: str
+    key_findings: List[InsightFinding]
+    data_quality_note: str
+    recommendation: str
+
+
+class DatasetOverview(BaseModel):
+    n_rows: int
+    n_cols: int
+    numeric_cols: int
+    categorical_cols: int
+    datetime_cols: int
+    missing_values_pct: float
+
+
+class DatasetReport(BaseModel):
+    dataset_id: str
+    filename: str
+    overview: DatasetOverview
+    eda: EdaResult
+    insights: StructuredInsights
+    model: Optional[TrainedModelSummary] = None
 
 
 
