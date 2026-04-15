@@ -3,15 +3,26 @@
 @tailwind utilities;
 
 body {
-  @apply bg-surface-900 text-neutral-100 font-sans text-[14px];
+  background-color: #F8FAFC;
+  color: #0F172A;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  font-size: 14px;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-neutral-700 rounded-full;
+  background: #CBD5E1;
+  border-radius: 99px;
 }
 
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
